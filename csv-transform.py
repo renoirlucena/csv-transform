@@ -1,42 +1,60 @@
 import csv
 
-# A function to process the cellular number based on the DDD data
-def process_cellular(cellular, city, state, ddd_data):
-    # If the cellular number is already in the correct format, return it as is
-    if len(cellular) in [11, 12]:  # Assuming phone numbers should be 11 or 12 digits long
-        return cellular
+# Define file paths for input and output
+csv_file_path = 'crm_export.csv'  # Replace with actual customer data CSV file name
+ddd_data_path = 'ddd_data.csv'  # DDD data CSV file
 
-    # Find the DDD for the given city and state
-    for ddd_entry in ddd_data:
-        if ddd_entry['City'].strip().lower() == city.strip().lower() and ddd_entry['State'].strip().lower() == state.strip().lower():
-            return f"({ddd_entry['DDD']}){cellular}"
+# Function to load DDD data into a dictionary
+def load_ddd_data(file_path):
+    ddd_dict = {}
+    with open(file_path, mode='r', newline='', encoding='utf-8') as file:
+        reader = csv.DictReader(file)
+        for row in reader:
+            # Create a key as a tuple of city and state for direct lookup
+            ddd_dict[(row['city'].strip(), row['state'].strip())] = row['ddd'].strip()
+    return ddd_dict
 
-    # If no DDD is found, return the original cellular number
-    return cellular
+# Function to update cellular numbers with missing DDD
+def process_cellular(cell_number, city, state, ddd_dict):
+    # Clean up any formatting in the cell number
+    clean_number = cell_number.replace(' ', '').replace('-', '')
 
-# Load the DDD data
-with open('ddd_data.csv', mode='r', encoding='utf-8') as ddd_file:
-    ddd_reader = csv.DictReader(ddd_file)
-    ddd_data = list(ddd_reader)
+    # Check for missing DDD by length of the cell number
+    if len(clean_number) < 11:
+        ddd_key = (city, state)
+        # Prepend missing DDD if city and state match in ddd_dict
+        if ddd_key in ddd_dict:
+            clean_number = ddd_dict[ddd_key] + clean_number
+        else:
+            # Log an error or handle cases with missing DDD information
+            print(f"Warning: No DDD found for {city}, {state}")
+    return clean_number
 
-# Process the CRM CSV file
-with open('crm_export.csv', mode='r', encoding='utf-8') as crm_file:
-    crm_reader = csv.DictReader(crm_file)
+# Load DDD data from provided CSV
+ddd_dict = load_ddd_data(ddd_data_path)
 
-    # Prepare the new CSV file
-    with open('processed_customers.csv', mode='w', newline='', encoding='utf-8') as outfile:
-        fieldnames = ['mobile', 'firstName', 'lastName', 'displayName']
-        writer = csv.DictWriter(outfile, fieldnames=fieldnames)
-        writer.writeheader()
+# Initialize a list to hold processed records
+processed_records = []
 
-        # Process each row
-        for row in crm_reader:
-            processed_cellular = process_cellular(row['customer_cellular'], row['customer_city'], row['customer_state'], ddd_data)
-            writer.writerow({
-                'mobile': processed_cellular,
-                'firstName': row['first_name'],
-                'lastName': row['last_name'],
-                'displayName': f"{row['first_name']} {row['last_name']}"
-            })
+# Read customer data and process cellular numbers
+with open(csv_file_path, mode='r', newline='', encoding='utf-8') as file:
+    reader = csv.DictReader(file)
+    for row in reader:
+        row['customer_cellular'] = process_cellular(
+            row.get('customer_cellular', ''),
+            row.get('customer_city', ''),
+            row.get('customer_state', ''),
+            ddd_dict
+        )
+        processed_records.append(row)
 
-print("Processing complete. The file processed_customers.csv has been created.")
+# Define path for the output CSV file
+output_csv_path = 'processed_customer_data.csv'
+
+# Write processed data to a new CSV file
+with open(output_csv_path, mode='w', newline='', encoding='utf-8') as file:
+    writer = csv.DictWriter(file, fieldnames=processed_records[0].keys())
+    writer.writeheader()
+    writer.writerows(processed_records)
+
+print(f"Data processing complete. Output saved to {output_csv_path}")
