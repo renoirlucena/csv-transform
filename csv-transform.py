@@ -1,60 +1,72 @@
 import csv
 
-# Define file paths for input and output
-csv_file_path = 'crm_export.csv'  # Replace with actual customer data CSV file name
-ddd_data_path = 'ddd_data.csv'  # DDD data CSV file
-
-# Function to load DDD data into a dictionary
 def load_ddd_data(file_path):
+    """
+    Loads the DDD data from a CSV file and returns a dictionary with the city-state tuple as the key and the DDD as the value.
+    :param file_path: str
+    :return: dict
+    """
     ddd_dict = {}
     with open(file_path, mode='r', newline='', encoding='utf-8') as file:
-        reader = csv.DictReader(file)
-        for row in reader:
-            # Create a key as a tuple of city and state for direct lookup
-            ddd_dict[(row['city'].strip(), row['state'].strip())] = row['ddd'].strip()
+        reader = csv.reader(file)
+        headers = next(reader, None)  # Read the header row
+        headers = [h.strip() for h in headers]  # Strip spaces from header names
+        for row in csv.DictReader(file, fieldnames=headers):
+            # Create a tuple of city and state as key, and DDD as the value
+            ddd_dict[(row['city'].strip().lower(), row['state'].strip().upper())] = row['ddd'].strip()
     return ddd_dict
 
-# Function to update cellular numbers with missing DDD
-def process_cellular(cell_number, city, state, ddd_dict):
-    # Clean up any formatting in the cell number
-    clean_number = cell_number.replace(' ', '').replace('-', '')
+def process_cellular(number, city, state, ddd_dict):
+    """
+    Processes the cellular number to ensure it has the correct DDD prefix based on the city and state, if necessary.
+    :param number: str
+    :param city: str
+    :param state: str
+    :param ddd_dict: dict
+    :return: str
+    """
+    # Check if DDD is missing and add it if necessary
+    if len(number) == 9:
+        city_state_tuple = (city.strip().lower(), state.strip().upper())
+        ddd = ddd_dict.get(city_state_tuple)
+        if ddd:
+            return f'{ddd}{number}'
+    return number
 
-    # Check for missing DDD by length of the cell number
-    if len(clean_number) < 11:
-        ddd_key = (city, state)
-        # Prepend missing DDD if city and state match in ddd_dict
-        if ddd_key in ddd_dict:
-            clean_number = ddd_dict[ddd_key] + clean_number
-        else:
-            # Log an error or handle cases with missing DDD information
-            print(f"Warning: No DDD found for {city}, {state}")
-    return clean_number
+def transform_csv(input_path, output_path, ddd_data_path):
+    """
+    Transforms the input CSV file to add missing DDDs to phone numbers and saves the result to the output path.
+    :param input_path: str
+    :param output_path: str
+    :param ddd_data_path: str
+    """
+    # Load DDD data
+    ddd_dict = load_ddd_data(ddd_data_path)
 
-# Load DDD data from provided CSV
-ddd_dict = load_ddd_data(ddd_data_path)
+    with open(input_path, mode='r', newline='', encoding='utf-8') as infile, \
+         open(output_path, mode='w', newline='', encoding='utf-8') as outfile:
+        reader = csv.DictReader(infile)
+        fieldnames = ['mobile', 'firstName', 'lastName', 'displayName']
+        writer = csv.DictWriter(outfile, fieldnames=fieldnames)
 
-# Initialize a list to hold processed records
-processed_records = []
+        writer.writeheader()
 
-# Read customer data and process cellular numbers
-with open(csv_file_path, mode='r', newline='', encoding='utf-8') as file:
-    reader = csv.DictReader(file)
-    for row in reader:
-        row['customer_cellular'] = process_cellular(
-            row.get('customer_cellular', ''),
-            row.get('customer_city', ''),
-            row.get('customer_state', ''),
-            ddd_dict
-        )
-        processed_records.append(row)
+        for row in reader:
+            # Process cellular number
+            processed_cellular = process_cellular(row['customer_cellular'], row['customer_city'], row['customer_state'], ddd_dict)
+            # Write the transformed data
+            writer.writerow({
+                'mobile': processed_cellular,
+                'firstName': row['first_name'].strip(),
+                'lastName': row['last_name'].strip(),
+                'displayName': f"{row['first_name'].strip()} {row['last_name'].strip()}"
+            })
 
-# Define path for the output CSV file
-output_csv_path = 'processed_customer_data.csv'
+if __name__ == "__main__":
+    # Define paths to the files
+    input_csv_path = '/Users/renoirlucena/code/csv-transform/crm_export.csv'
+    output_csv_path = '/Users/renoirlucena/code/csv-transform/processed_crm_export.csv'  # Name the output file as processed_crm_export.csv
+    ddd_csv_path = '/Users/renoirlucena/code/csv-transform/ddd_data.csv'
 
-# Write processed data to a new CSV file
-with open(output_csv_path, mode='w', newline='', encoding='utf-8') as file:
-    writer = csv.DictWriter(file, fieldnames=processed_records[0].keys())
-    writer.writeheader()
-    writer.writerows(processed_records)
-
-print(f"Data processing complete. Output saved to {output_csv_path}")
+    # Run the transformation
+    transform_csv(input_csv_path, output_csv_path, ddd_csv_path)
